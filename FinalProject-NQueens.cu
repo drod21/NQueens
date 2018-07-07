@@ -141,16 +141,12 @@ int Solver(int board[n][n], int col)
   return nextState;
 }
 
-int main(int argc, char **argv){
+int main(int argc, char **argv) {
 
-//  n = atoi(argv[1]);
+  //  n = atoi(argv[1]);
   int board[n][n];
-//  memset(board,0,sizeof(board));
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            board[i][j] = 0;
-        }
-    }
+  memset(board,0,sizeof(board));
+
   if(Solver(board,0) == 0)
   {
     printf("No Solution\n");
