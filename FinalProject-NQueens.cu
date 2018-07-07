@@ -1,5 +1,6 @@
 /* ==================================================================
-	Programmers: Conner Wulf (connerwulf@mail.usf.edu)
+  Programmers: Conner Wulf (connerwulf@mail.usf.edu),
+               Derek Rodriguez (derek23@mail.usf.edu)
    ==================================================================
 */
 
