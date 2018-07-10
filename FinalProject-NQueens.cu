@@ -13,7 +13,7 @@
 #include <cuda_runtime.h>
 #include <cuda.h>
 
-const int n = 6;
+const int n = 8;
 
 void outputSolution(int board[n][n]) {
     static int k = 1;
@@ -61,7 +61,7 @@ int isAllowed(int board[n][n], int row, int col)
 }
 
 // GPU helper problem
-__device__ int isAllowed(int board[n][n], int row, int col)
+__device__ int isAllowedGpu(int board[n][n], int row, int col)
 {
   int x,y;
 
@@ -91,54 +91,27 @@ __device__ int isAllowed(int board[n][n], int row, int col)
  return 1;
 }
 
-int solverUtil(int board[n][n], int col)
-{
-  int count = 0;
-  int nextState = 0;
-
-  for(int k = 0; k < n; k++)
-  {
-    for(int j = 0; j < n; j++) {
-      if (col == n)
-      {
-        count++;
-        outputSolution(board);
-        printf("count: %d\n", count);
-        nextState = 1;
-      }
-
-      if (isAllowed(board, k, col))
-      {
-        board[k][col] = 1;
-      }
-    }
-  }
-  return nextState;
-}
-
 //N-queen solver for CPU algorithm
 int Solver(int board[n][n], int col)
 {
   int count = 0;
-  if (col == n)
+  if (col >= n)
   {
-    count++;
-      outputSolution(board);
-      printf("count: %d\n", count);
+    outputSolution(board);
     return 1;
   }
 
   int nextState = 0;
-
   for(int k = 0; k < n; k++)
   {
-    if (isAllowed(board,k,col))
+    if(isAllowed(board,k,col))
     {
       board[k][col] = 1;
-      nextState = Solver(board, col + 1);
+      nextState = Solver(board, col + 1) || nextState;
       board[k][col] = 0;
     }
   }
+
   return nextState;
 }
 
