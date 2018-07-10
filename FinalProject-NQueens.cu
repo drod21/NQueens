@@ -94,7 +94,6 @@ __device__ int isAllowedGpu(int board[n][n], int row, int col)
 //N-queen solver for CPU algorithm
 int Solver(int board[n][n], int col)
 {
-  int count = 0;
   if (col >= n)
   {
     outputSolution(board);
