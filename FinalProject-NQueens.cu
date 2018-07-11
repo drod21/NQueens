@@ -14,20 +14,9 @@
 #include <cuda.h>
 
 const int n = 8;
+static int total = 0;
 
-void outputSolution(int board[n][n]) {
-    static int k = 1;
 
-    printf("%d-\n",k++);
-
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            printf(" %d ", board[i][j]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
 
 //CPU helper function to test is a queen can be placed
 int isAllowed(int board[n][n], int row, int col)
@@ -96,7 +85,8 @@ int Solver(int board[n][n], int col)
 {
   if (col >= n)
   {
-    outputSolution(board);
+
+    total++;
     return 1;
   }
 
@@ -115,8 +105,7 @@ int Solver(int board[n][n], int col)
 }
 
 int main(int argc, char **argv) {
-
-  //  n = atoi(argv[1]);
+  //  CPU VERSION
   int board[n][n];
   memset(board,0,sizeof(board));
 
@@ -125,6 +114,7 @@ int main(int argc, char **argv) {
     printf("No Solution\n");
     return 0;
   }
-
+  printf("\nTotal Solutions(CPU): %d boards\n\n",total);
   return 0;
+
 }
