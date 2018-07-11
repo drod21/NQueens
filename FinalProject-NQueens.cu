@@ -15,9 +15,8 @@
 
 const int n = 8;
 static int total = 0;
-
-
-
+struct timezone Idunno;	
+struct timeval startTime, endTime;
 //CPU helper function to test is a queen can be placed
 int isAllowed(int board[n][n], int row, int col)
 {
@@ -104,17 +103,35 @@ int Solver(int board[n][n], int col)
   return nextState;
 }
 
+double report_running_time() {
+	long sec_diff, usec_diff;
+	gettimeofday(&endTime, &Idunno);
+	sec_diff = endTime.tv_sec - startTime.tv_sec;
+	usec_diff= endTime.tv_usec-startTime.tv_usec;
+	if(usec_diff < 0) {
+		sec_diff --;
+		usec_diff += 1000000;
+	}
+	printf("Running time for CPU version: %ld.%06ld\n", sec_diff, usec_diff);
+	return (double)(sec_diff*1.0 + usec_diff/1000000.0);
+}
+
 int main(int argc, char **argv) {
   //  CPU VERSION
   int board[n][n];
   memset(board,0,sizeof(board));
+	srand(1);
+	gettimeofday(&startTime, &Idunno);
 
   if(Solver(board,0) == 0)
   {
     printf("No Solution\n");
+  	report_running_time();
     return 0;
   }
   printf("\nTotal Solutions(CPU): %d boards\n\n",total);
+	report_running_time();
+
   return 0;
 
 }
