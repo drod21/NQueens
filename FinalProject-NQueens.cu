@@ -1,6 +1,7 @@
 /* ==================================================================
   Programmers: Conner Wulf (connerwulf@mail.usf.edu),
                Derek Rodriguez (derek23@mail.usf.edu)
+	       David Hoambrecker (david106@mail.usf.edu)
    ==================================================================
 */
 
@@ -12,13 +13,14 @@
 #include <iostream>
 #include <cuda_runtime.h>
 #include <cuda.h>
+#include <vector>
 
-const int n = 8;
+using namespace std;
 static int total = 0;
 struct timezone Idunno;	
 struct timeval startTime, endTime;
 //CPU helper function to test is a queen can be placed
-int isAllowed(int board[n][n], int row, int col)
+int isAllowed(vector<vector<int> > board, int row, int col, int n)
 {
   int x,y;
 
@@ -49,7 +51,8 @@ int isAllowed(int board[n][n], int row, int col)
 }
 
 // GPU helper problem
-__device__ int isAllowedGpu(int board[n][n], int row, int col)
+/*
+__device__ int isAllowedGpu(, int row, int col)
 {
   int x,y;
 
@@ -78,9 +81,10 @@ __device__ int isAllowedGpu(int board[n][n], int row, int col)
   }
  return 1;
 }
+*/
 
 //N-queen solver for CPU algorithm
-int Solver(int board[n][n], int col)
+int Solver(vector<vector<int> > board, int col, int n)
 {
   if (col >= n)
   {
@@ -92,10 +96,10 @@ int Solver(int board[n][n], int col)
   int nextState = 0;
   for(int k = 0; k < n; k++)
   {
-    if(isAllowed(board,k,col))
+    if(isAllowed(board,k,col,n))
     {
       board[k][col] = 1;
-      nextState = Solver(board, col + 1) || nextState;
+      nextState = Solver(board, col + 1,n) || nextState;
       board[k][col] = 0;
     }
   }
@@ -118,12 +122,15 @@ double report_running_time() {
 
 int main(int argc, char **argv) {
   //  CPU VERSION
-  int board[n][n];
-  memset(board,0,sizeof(board));
+  
+	const int n = atoi(argv[1]);
+	vector<vector<int> > board;
+	board.resize(n, std::vector<int>(n, 0));
+	
 	srand(1);
 	gettimeofday(&startTime, &Idunno);
 
-  if(Solver(board,0) == 0)
+  if(Solver(board,0,n) == 0)
   {
     printf("No Solution\n");
   	report_running_time();
