@@ -194,7 +194,7 @@ __global__ void isAllowedGpu(int *d_board, int row, int col, int n, int *allowed
 // }
 //N-queen solver for CPU algorithm
 int SolverGPU(int **board, int col, int n)
-{{
+{
   int *allowed;
   int temp = 0;
   int *d_board;
