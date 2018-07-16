@@ -17,6 +17,7 @@
 
 using namespace std;
 static int total = 0;
+unsigned long count = 0;
 struct timezone Idunno;	
 struct timeval startTime, endTime;
 //CPU helper function to test is a queen can be placed
@@ -42,7 +43,7 @@ int isAllowed(int **board, int row, int col, int n) // make this the kernel?????
     }
   for(x = row, y = col; x < n && y >= 0; x++, y--)
   {
-    if  (board[x][y] == 1)
+    if (board[x][y] == 1)
     {
       return 0;
     }
@@ -79,60 +80,121 @@ __global__ void nqueen_kernel_3(*job_data, *results ... )
 */
 
 /* use this one */
-/*
-__global__ void nqueen_kernel_0(*job_data, *results, *work_space... )
+// /*
+// __global__ void nqueen_kernel_0(int *job_data, int *results, int *work_space)
+// {
+//   __register__ rowIndex, solution;
+//   int tx = threadIdx.x;
+//   int x = tx * blockDim.x + threadIdx.x;
+
+//   each thread fetches a task from job_data into its array ROW[ ] in work_space;
+//   while(rowIndex >= 0) {
+//     if (no position to place new queen in ROW[rowIndex]) { rowIndex--; }
+//     else{
+//       finds a valid position P in ROW[rowIndex];
+//       places a queen at P in ROW[rowIndex] and mark the position as occupied;
+//     if (reaches last row) { solution++; }
+//     else{
+//       generates ROW[rowIndex+1] based on Row[rowIndex] and the position P;
+//       rowIndex++;
+//     }
+//   }
+// }
+// reduction of the solutions of the threads within each bl*/
+__global__ void isAllowedGpu(int *d_board, int row, int col, int n, int *allowed, int *count)
 {
-  __register__ rowIndex, solution;
-  each thread fetches a task from job_data into its array ROW[ ] in work_space;
-  while(rowIndex >= 0) {
-    if (no position to place new queen in ROW[rowIndex]) { rowIndex--; }
-    else{
-      finds a valid position P in ROW[rowIndex];
-      places a queen at P in ROW[rowIndex] and mark the position as occupied;
-    if (reaches last row) { solution++; }
-    else{
-      generates ROW[rowIndex+1] based on Row[rowIndex] and the position P;
-      rowIndex++;
-    }
+  int tx = threadIdx.x;
+  int x = tx * blockDim.x + threadIdx.x;
+  int *qBitCol;
+  qBitCol = (int *) malloc(n * blockDim.x * sizeof(int));
+  int *qBitPosDiag;
+  qBitPosDiag = (int *) malloc(n * blockDim.x * sizeof(int));
+  int *qBitNegDiag;
+  qBitNegDiag = (int *) malloc(n * blockDim.x * sizeof(int));
+  int *stack;
+  stack = (int *) malloc(sizeof(int) * n * n + 2);
+  register int nStack;
+  qBitCol[tx]=qBitPosDiag[tx]=qBitNegDiag[tx]=0;
+  int *temp = count;
+  int i, j, m, k;
+  if(x >= n) {
+    *temp = atomicAdd(temp,1);
+    count = temp;
+    return;
   }
-}
-reduction of the solutions of the threads within each bl*/
-__global__ void isAllowedGpu(int *d_board, int row, int col, int n, int *allowed)
-{
-  int x = threadIdx.x + blockDim.x * blockIdx.x;
-  int y = threadIdx.y + blockDim.y * blockIdx.y;
-  int i, j;
-  //left check
-  for (i = x; i < col + x; i++)
-  {
-    if(d_board[i] == 1)
-    {
-      *allowed = 0;
-      return;
-    }
-  }
-  //check left diagonal up
-  for(i = row + y, j = x + col; i >= y && j >= x; i--, j--)
-    {
-      if(d_board[i * n + j] == 1)
+  for(k = x; k < n; k++) {
+    //left check
+    for(m = row; m >= y; m--) {
+      for (i = 0; i < k; i++)
       {
-        *allowed = 0;
-        return;
+        if(qBitCol[i + m] == 1)
+        {
+          nStack = 0;
+        }
+        else
+        {
+          nStack = 1;
+          qBitCol[i + m] = 1;
+        }
       }
+      printf("line 120 d board %d allowed %d \n", d_board[y + x], allowed[y + x]);
+      __syncthreads();
+      //check left diagonal up
+      for(i = m, j = k; i >= 0 && j >= 0; i--, j--)
+        {
+          if(qBitNegDiag[i + j] == 1)
+          {
+            nStack = 0;
+          }
+          else 
+          {
+            nStack = 1;
+            qBitNegDiag[i + j] = 1;
+          }
+        }
+      __syncthreads();
+      for(i = m, j = k; i < n && j >= 0; i++, j--)
+      {
+        if(qBitPosDiag[i + j] == 1)
+        {
+          nStack = 0;
+        }
+        else 
+        {
+          nStack = 1;
+          qBitPosDiag[i + j] = 1;
+        }
+      }
+      __syncthreads();
+
+      if(nStack == 1) {
+        d_board[m + k] = 1;
+        stack[k] = 1;
+      }
+      printf("line 143 d board %d allowed %d \n", d_board[m + k], allowed[m + k]);
+
+      
     }
-  for(i = row, j = col + x; i < n && j >= x; i++, j--)
-  {
-    if(d_board[i * n + j] == 1)
-    {
-      *allowed = 0;
-      return;
-    }
+    // allowed[m + k] = 1;
+    __syncthreads();
+    printf("d board %d allowed %d \n", d_board[m + k], allowed[m + k]);
+    // d_board[m + k] = 0;
   }
- *allowed = 1;
 }
+
+// __global__ void queenSolverGpu(int *d_board, int n, int *allowed, int *count) {
+//   int threadId = blockIdx.x * blockDim.x + threadIdx.x;
+//   int threadX = threadIdx.x;
+//   int qBitCol[n * blockDim.x];
+//   int qBitPosDiag[n * blockDim.x];
+//   int qBitNegDiag[n * blockDim.x];
+//   int stack[n*n+2];
+//   register int nStack;
+//   qBitCol[tx]=qBitPosDiag[tx]=qBitNegDiag[tx]=0;
+// }
 //N-queen solver for CPU algorithm
-int Solver(int **board, int col, int n)
-{
+int SolverGPU(int **board, int col, int n)
+{{
   int *allowed;
   int temp = 0;
   int *d_board;
@@ -165,6 +227,31 @@ int Solver(int **board, int col, int n)
   return nextState;
 }
 
+int Solver(int board[n][n], int col)
+{
+  int count = 0;
+  if (col == n)
+  {
+    count++;
+      outputSolution(board);
+      printf("count: %d\n", count);
+    return 1;
+  }
+
+  int nextState = 0;
+
+  for(int k = 0; k < n; k++)
+  {
+    if (isAllowed(board,k,col))
+    {
+      board[k][col] = 1;
+      nextState = Solver(board, col + 1);
+      board[k][col] = 0;
+    }
+  }
+  return nextState;
+}
+
 double report_running_time() {
 	long sec_diff, usec_diff;
 	gettimeofday(&endTime, &Idunno);
@@ -183,9 +270,12 @@ int main(int argc, char **argv) {
   
   const int n = atoi(argv[1]);
   int **board;
+  int **newHostBoard;
+  newHostBoard = (int **) malloc(n * sizeof(int *));
   board = (int **) malloc(n * sizeof(int *));
   for (int i = 0; i < n; i++) {
     board[i] = (int *) malloc(n * sizeof(int));
+    newHostBoard[i] = (int *) malloc(n * sizeof(int));
   }
   for (int i = 0; i < n; i++) {
     for (int j = 0; j < n; j++) {
@@ -193,11 +283,43 @@ int main(int argc, char **argv) {
     }
   }
 	// vector<vector<int> > board;
-	// board.resize(n, std::vector<int>(n, 0));
-	
-	srand(1);
-	gettimeofday(&startTime, &Idunno);
+  // board.resize(n, std::vector<int>(n, 0));
+  // int *allowed;
+  // int temp = 0;
+  // int *d_board;
+  // int *count;
+  // size_t pitch;
+  // dim3 threadsPerBlock(n, 1, 1);
+  // dim3 numBlocks(n / threadsPerBlock.x, 1, 1);
+  // cudaMalloc((void **) &allowed, n);
+  // cudaMalloc((void **) &count, n);
+  // cudaMallocPitch(&d_board, &pitch, n * sizeof(int), n);
+  // cudaMemcpy2D(d_board, pitch, board, n * sizeof(int), n * sizeof(int), n, cudaMemcpyHostToDevice);
+  // cudaMemcpy(allowed, &temp, sizeof(int), cudaMemcpyHostToDevice);
+  // cudaMemcpy(count, &total, sizeof(int), cudaMemcpyHostToDevice);
+  // // for(int i = 0; i < n; i++) {
+  // //   for(int k = 0; k < n; k++) {
+  //     isAllowedGpu<<<numBlocks, threadsPerBlock, n>>>(d_board, n, 0, n, allowed, count);
+  //     cudaMemcpy(&temp, allowed, sizeof(int), cudaMemcpyDeviceToHost);
+  //     if(temp == 1) {
+  //       newHostBoard[i][k] = 1;
 
+  //     }
+  //   }
+  // }
+  // cudaMemcpy(&total, count, sizeof(int), cudaMemcpyDeviceToHost);
+  // cudaMemcpy2D(newHostBoard, pitch, d_board, n * sizeof(int), n * sizeof(int), n, cudaMemcpyDeviceToHost);
+	
+	
+  // if(temp == 0) {
+  //   printf("No Solution\n");
+  //   report_running_time();
+  //   return 0;
+  // }
+
+	srand(1);
+  gettimeofday(&startTime, &Idunno);
+  
   if(Solver(board,0,n) == 0)
   {
     printf("No Solution\n");
@@ -205,7 +327,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   printf("\nTotal Solutions(CPU): %d boards\n\n",total);
-	report_running_time();
+  report_running_time();
 
   return 0;
 
