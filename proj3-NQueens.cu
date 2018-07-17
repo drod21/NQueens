@@ -176,7 +176,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
   }
 
   __syncthreads();
-
+/*
     // sum all threads in block to get total
   	if(threadIdx.x == 0 && threadIdx.y == 0)
     {
@@ -192,7 +192,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
   	}
 
 
-  	__syncthreads();
+  	__syncthreads();*/
 }
 
 
@@ -205,8 +205,8 @@ double report_running_time() {
 		sec_diff --;
 		usec_diff += 1000000;
 	}
-	printf("CPU Time: %ld.%06ld\n", sec_diff, usec_diff);
-	return (double)(sec_diff*1.0 + usec_diff/1000000.0);
+	printf("CPU Time: %ld.%06ld secs\n", sec_diff, usec_diff);
+	return (double)(sec_diff*1.0 + usec_diff/1000.0);
 }
 
 
@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
 
   if(argc < 3) {
 
-    printf("\nError, too few arguments. Usage: ./CHANGE THIS\n");
+    printf("\nError, too few arguments. Usage: ./queens 1 4\n");
     return -1;
   }
 
@@ -299,10 +299,10 @@ int main(int argc, char **argv) {
   gettimeofday(&startTime, &Idunno);
   Solver(board, 0, NUM);
 
+  printf("\nTotal Solutions: %d boards\n",total);
 
-  printf("\nTotal Solutions: %d boards\n\n",total);
   report_running_time();
-  printf("GPU Time: %f secs\n", (elapsedTime / 1000.00));
+  printf("GPU Time: %f secs\n\n", (elapsedTime / 1000.00));
   return 0;
 
 }
