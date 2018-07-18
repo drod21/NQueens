@@ -31,8 +31,58 @@ struct timezone Idunno;
 struct timeval startTime, endTime;
 
  #ifndef NUM
- #define NUM 12
+ #define NUM 4
  #endif
+
+ __device__ void findSum(long *a, int nBX, int nBY)
+ {
+   int num_Blocks = gridDim.x *gridDim.y;
+   int gridRowSize = powf(NUM, nBX);
+   long total = 0;
+
+   if(NUM % 2 == 0)
+   {
+       for(int t = 0; t < num_Blocks; t++)
+       {
+         total += a[t];
+         printf("%li\n", a[t]);
+       }
+       total *= 2;
+       printf("%li\n", total);
+   }
+
+   else
+   {
+     int SegBlockNum = num_Blocks / nBY;
+
+     for(int q = 0; q < nBY; q++)
+     {
+
+       int begin = q* SegBlockNum;
+
+       for(int b = begin; b < begin + SegBlockNum -gridRowSize; b++)
+       {
+         total += a[b];
+       }
+     }
+     total *= 2;
+
+     for(int f = 0; f < nBY; f++)
+     {
+
+       for( int e = f * SegBlockNum + SegBlockNum - gridRowSize; e < f * SegBlockNum + SegBlockNum; e++)
+       {
+         total += a[e];
+       }
+     }
+   }
+
+   a[gridDim.x * blockIdx.y + blockIdx.x] = 0;
+   a[gridDim.x * blockIdx.y + blockIdx.x] = total;
+
+
+
+ }
 
 //CPU helper function to test is a queen can be placed
 int isAllowed(int **board, int row, int col, int n)
@@ -88,7 +138,7 @@ int Solver(int **board, int col, int n)
 }
 
 // GPU parallel kernel for N-Queens
-__global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
+__global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum)
 {
   __shared__ long sol[NUM][NUM];
   __shared__ char tup[NUM][NUM][NUM];
@@ -99,7 +149,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
   int totalGenerated = powf(NUM, genNum);
   int blockYSeg = blockIdx.y / SegSize;
   int workLoad = totalGenerated / nBY;
-  int runOff = totalGenerated - workLoad *nBY;
+  int runOff = totalGenerated - workLoad * nBY;
 
 
 
@@ -131,10 +181,6 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
   }
 
 
-
-
-
-
   if (wrongCount == 0)
   {
     int begin = blockYSeg * workLoad;
@@ -144,7 +190,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
       int temp = c;
       for(int q = 0, z =tupCount + 1; q < genNum; z++, q++)
       {
-        tup[threadIdx.x][threadIdx.y][q] = temp % NUM;
+        tup[threadIdx.x][threadIdx.y][z] = temp % NUM;
         temp = temp / NUM;
       }
 
@@ -155,7 +201,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
 				}
 			}
 
-      for(int k = NUM -1; k > wrongCount; k--)
+      for(int k = NUM -1; k > wrongCount * NUM; k--)
       {
         for(int m = k - 1, counter = 1; m >= 0; counter++, m--)
         {
@@ -170,13 +216,14 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
       }
 
       sol[threadIdx.x][threadIdx.y] += !(wrongCount);
+
       wrongCount = 0;
 
     }
   }
 
   __syncthreads();
-/*
+
     // sum all threads in block to get total
   	if(threadIdx.x == 0 && threadIdx.y == 0)
     {
@@ -189,11 +236,63 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum)
   			}
   		}
   		answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
+    //  printf("%li\n", answer[gridDim.x * blockIdx.y + blockIdx.x]);
   	}
 
 
-  	__syncthreads();*/
+  	__syncthreads();
+
+    if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0)
+    {
+      //findSum(answer, nBX, nBY);
+      int numBlocks = gridDim.x * gridDim.y;
+      int gridRowSize = powf(NUM, nBX);
+      long total = 0;
+
+      if(NUM % 2 == 0)
+      {
+          for(int t = 0; t < numBlocks; t++)
+          {
+            total+= answer[t];
+            //printf("%li\n", answer[t]);
+          }
+          total *= 2;
+        //  printf("%li\n", total);
+      }
+
+      else
+      {
+        int SegBlockNum = numBlocks / nBY;
+
+        for(int q = 0; q < nBY; q++)
+        {
+
+          int begin = q* SegBlockNum;
+
+          for(int b = begin; b < begin + SegBlockNum -gridRowSize; b++)
+          {
+            total+= answer[b];
+          }
+        }
+        total *= 2;
+
+        for(int f = 0; f < nBY; f++)
+        {
+
+          for( int e = f * SegBlockNum + SegBlockNum - gridRowSize; e < f * SegBlockNum + SegBlockNum; e++)
+          {
+            total += answer[e];
+          }
+        }
+      }
+
+      answer[gridDim.x * blockIdx.y + blockIdx.x] = 0;
+      answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
+    }
 }
+
+
+
 
 
 double report_running_time() {
@@ -212,14 +311,15 @@ double report_running_time() {
 
 int main(int argc, char **argv) {
 
-  if(argc < 3) {
+  if(argc < 4) {
 
-    printf("\nError, too few arguments. Usage: ./queens 1 4\n");
+    printf("\nError, too few arguments. Usage: ./queens 1 4 1\n");
     return -1;
   }
 
   const int NUM_TUPLEX = atoi(argv[1]);
   const int NUM_TUPLEY = atoi(argv[2]);
+  int GPUSum = atoi(argv[3]);
   const int generatedNum = NUM - 3 - NUM_TUPLEX;
   cudaEvent_t start, stop;
   float elapsedTime;
@@ -232,6 +332,11 @@ int main(int argc, char **argv) {
   //ensure N is in the correct range
   if(NUM < 4  || NUM > 22){
     printf("\nN(%d) must be between 4 and 22 inclusive\n", NUM);
+    exit(1);
+  }
+  if(GPUSum != 0 && GPUSum != 1)
+  {
+    printf("\nThe GPU sum identifier(%d) must be a 0 or 1, only\n", GPUSum);
     exit(1);
   }
 
@@ -282,7 +387,7 @@ int main(int argc, char **argv) {
   cudaEventCreate(&stop);
   cudaEventRecord(start, 0);
 
-  kernel<<<grid, block>>>(d_answer, YSegmentSize, NUM_TUPLEX, NUM_TUPLEY, generatedNum);
+  kernel<<<grid, block>>>(d_answer, YSegmentSize, NUM_TUPLEX, NUM_TUPLEY, generatedNum, GPUSum);
   cudaThreadSynchronize();
 
   cudaEventRecord(stop, 0);
@@ -292,14 +397,23 @@ int main(int argc, char **argv) {
   cudaMemcpy(answer,d_answer, sizeof(long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
 
 
-
+const char* errorString = cudaGetErrorString(cudaGetLastError());
+printf("GPU Error: %s\n", errorString);
 
 
 	srand(1);
   gettimeofday(&startTime, &Idunno);
   Solver(board, 0, NUM);
 
-  printf("\nTotal Solutions: %d boards\n",total);
+
+  if(GPUSum == 0)
+  {
+    printf("\nTotal Solutions(CPU): %d boards\n",total);
+  }
+  else if (GPUSum == 1)
+  {
+    printf("\nTotal Solutions(GPU): %li boards\n", answer[0]);
+  }
 
   report_running_time();
   printf("GPU Time: %f secs\n\n", (elapsedTime / 1000.00));
