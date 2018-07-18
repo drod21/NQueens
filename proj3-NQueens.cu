@@ -138,154 +138,168 @@ int Solver(int **board, int col, int n)
   return nextState;
 }
 
-// GPU parallel kernel for N-Queens
-__global__ void kernel(long *d_d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum)
-{
-  __shared__ long sol[NUM][NUM];
-  __shared__ char tup[NUM][NUM][NUM];
+__global__
+void queen(long *a, int sizePerYSeg){
 
-  int wrongCount = 0;
-  
-  int totalGenerated = powf(NUM, genNum);
-  int blockYSeg = blockIdx.y / SegSize;
-  int workLoad = totalGenerated / nBY;
-  int runOff = totalGenerated - workLoad * nBY;
-
-
-
-
-  int temp = blockIdx.x;
-  for(int x = 1; x <=nBX; x++)
-  {
-    tup[threadIdx.x][threadIdx.y][x] = temp % NUM;
-    temp = temp / NUM;
-  }
-  int tupCount = nBX;
-  tup[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.x;
-  tup[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.y;
-  for(int k = tupCount; k > 0; k--)
-  {
-    for(int m = k - 1, counter = 1; m >= 0; counter++, m--)
-    {
-      //Checks diagonal left, down
-      wrongCount += (tup[threadIdx.x][threadIdx.y][k] + counter) == tup[threadIdx.x][threadIdx.y][m];
-      //Checks row its in
-      wrongCount += tup[threadIdx.x][threadIdx.y][k] == tup[threadIdx.x][threadIdx.y][m];
-      // Checks diagonal left, up
-      wrongCount  += (tup[threadIdx.x][threadIdx.y][k] - counter) == tup[threadIdx.x][threadIdx.y][m];
-
-    }
-  }
-
-  if (wrongCount == 0)
-  {
-    int begin = blockYSeg * workLoad;
-    for(int c = begin; c < begin + workLoad + (blockYSeg == nBY - 1) * runOff; c++)
-    {
-      //last values is made in tuple, convert and store to tup array
-      int temp = c;
-      for(int q = 0, z = tupCount + 1; q < genNum; z++, q++)
-      {
-        tup[threadIdx.x][threadIdx.y][z] = temp % NUM;
-        temp = temp / NUM;
-      }
-
-      //checks that the genNum tuple values are indeed unique (saves work overall)
-      for(int a = 0; a < genNum && wrongCount == 0; a++){
-				for(int b = 0; b < genNum && wrongCount == 0; b++){
-					wrongCount += tup[threadIdx.x][threadIdx.y][tupCount + 1 + a] == tup[threadIdx.x][threadIdx.y][tupCount + 1 + b] && a != b;
-        }
+	__shared__ long solutions[_N_][_N_];
+	__shared__ char tuple[_N_][_N_][_N_];
+	
+	int totalWrong = 0;
+	solutions[threadIdx.x][threadIdx.y] = 0;
+	
+	int totNumGen = powf(_N_, numGen);
+	
+	int bYsegment = blockIdx.y / sizePerYSeg;
+	int workSize = totNumGen / numBY; 
+	int extra = totNumGen - workSize * numBY;//extra work to be done by last segment
+	
+	//set tuple by block Y value
+	tuple[threadIdx.x][threadIdx.y][0] = blockIdx.y % sizePerYSeg;
+	
+	//set tuple(s) by block X value
+	int rem = blockIdx.x;
+	for(int i = 1; i <= numBX; i++){
+		tuple[threadIdx.x][threadIdx.y][i] = rem % _N_;
+		rem = rem / _N_;
+	}
+	
+	int tupCtr = numBX;
+	
+	//set tuples by thread value
+	tuple[threadIdx.x][threadIdx.y][++tupCtr] = threadIdx.x;
+	tuple[threadIdx.x][threadIdx.y][++tupCtr] = threadIdx.y;
+	
+	
+	
+	//check if thread is valid at this point
+	for(int i = tupCtr; i > 0; i--){
+		for(int j = i - 1, ctr = 1; j >= 0; j--, ctr++){
+			//same row
+			totalWrong += tuple[threadIdx.x][threadIdx.y][i] == tuple[threadIdx.x][threadIdx.y][j];
+			
+			//diag upleft
+			totalWrong += (tuple[threadIdx.x][threadIdx.y][i] - ctr) == tuple[threadIdx.x][threadIdx.y][j];
+			
+			//diag downleft
+			totalWrong += (tuple[threadIdx.x][threadIdx.y][i] + ctr) == tuple[threadIdx.x][threadIdx.y][j]; 
+		}
+	}
+	
+	if(totalWrong == 0){
+	
+		//iterate through all numbers to generate possible solutions thread must check
+		//does not do if thread is already not valid at this point
+		int start = bYsegment * workSize;
+		for(int c = start; c < start + workSize + (bYsegment == numBY - 1) * extra; c++){
+			
+			//generate last values in tuple, convert to base N and store to tuple array
+			int rem = c;
+			for(int b = 0, k = tupCtr + 1; b < numGen; b++, k++){
+				tuple[threadIdx.x][threadIdx.y][k] = rem % _N_;
+				rem = rem / _N_;
 			}
+			
+			//checks that the numGen tuple values are indeed unique (saves work overall)
+			for(int x = 0; x < numGen && totalWrong == 0; x++){
+				for(int y = 0; y < numGen && totalWrong == 0; y++){
+					totalWrong += tuple[threadIdx.x][threadIdx.y][tupCtr + 1 + x] == tuple[threadIdx.x][threadIdx.y][tupCtr + 1 + y] && x != y;
+				}
+			}
+			
+			//check one solution
+			for(int i = _N_ - 1; i > totalWrong * _N_; i--){
+				for(int j = i - 1, ctr = 1; j >= 0; j--, ctr++){
+					//same row
+					totalWrong += tuple[threadIdx.x][threadIdx.y][i] == tuple[threadIdx.x][threadIdx.y][j];
+					
+					//diag upleft
+					totalWrong += (tuple[threadIdx.x][threadIdx.y][i] - ctr) == tuple[threadIdx.x][threadIdx.y][j]; 
+					
+					//diag downleft
+					totalWrong += (tuple[threadIdx.x][threadIdx.y][i] + ctr) == tuple[threadIdx.x][threadIdx.y][j];
+				}
+			}
+			
+			//add 1 to solution total if nothing wrong
+			solutions[threadIdx.x][threadIdx.y] += !(totalWrong);
+			
+			//reset total wrong
+			totalWrong = 0;
+		}
+	
+	}
+		
+	//sync the threads so that thread 0 can make the calculations
+	__syncthreads();
+	
+	//have thread 0 sum for all threads in block to get block total
+	if(threadIdx.x == 0 && threadIdx.y == 0){
+	
+		//ensure that the block total value is 0 initially
+		long sum = 0;
+		
+		//iterate through each threads solution and add it to the block total
+		for(int i =0; i < _N_; i++){
+			for(int j = 0; j < _N_; j++){
+				//use local var
+				sum += solutions[i][j];
+			}
+		}
+		
+		//store to global memory
+		a[gridDim.x * blockIdx.y + blockIdx.x] = sum;
+		
+	}
+	
+	//sync the threads so that calculations can be made
+	__syncthreads();
+	
+	//have the first thread in the first block sum up the block sums to return to the CPU
+	if(sumOnGPU == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0){
+		sumBlocks(a);
+	}
+	
+} 
 
-      for(int k = NUM -1; k > wrongCount * NUM; k--)
-      {
-        for(int m = k - 1, counter = 1; m >= 0; m--, counter++)
-        {
-          //Checks diagonal left, down
-          wrongCount += (tup[threadIdx.x][threadIdx.y][k] + counter) == tup[threadIdx.x][threadIdx.y][m];
-          //Checks row its in
-          wrongCount += tup[threadIdx.x][threadIdx.y][k] == tup[threadIdx.x][threadIdx.y][m];
-          // Checks diagonal left, up
-          wrongCount += (tup[threadIdx.x][threadIdx.y][k] - counter) == tup[threadIdx.x][threadIdx.y][m];
-        }
-      }
-      sol[threadIdx.x][threadIdx.y] += !(wrongCount);
+__device__
+void sumBlocks(long *a){
+	long sum = 0;
+	int numberBlocks = gridDim.x * gridDim.y;
+	int rowSizeOfGrid = powf(_N_, numBX);
 
-      wrongCount = 0;
-
-    }
-  }
-  
-  __syncthreads();
-    // sum all threads in block to get total
-  	if(threadIdx.x == 0 && threadIdx.y == 0)
-    {
-
-  		long total = 0;
-
-  		for(int i =0; i < NUM; i++){
-  			for(int j = 0; j < NUM; j++){
-  				total += sol[i][j];
-        }
-        printf("%d\n", total);
-  		}
-  		d_answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
-    //  printf("%li\n", d_answer[gridDim.x * blockIdx.y + blockIdx.x]);
-  	}
-
-
-  	__syncthreads();
-
-    if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0)
-    {
-      //findSum(d_answer, nBX, nBY);
-      int numBlocks = gridDim.x * gridDim.y;
-      int gridRowSize = powf(NUM, nBX);
-      long total = 0;
-
-      if(NUM % 2 == 0)
-      {
-          for(int t = 0; t < numBlocks; t++)
-          {
-            total+= d_answer[t];
-            //printf("%li\n", d_answer[t]);
-          }
-          total *= 2;
-        //  printf("%li\n", total);
-      }
-
-      else
-      {
-        int SegBlockNum = numBlocks / nBY;
-
-        for(int q = 0; q < nBY; q++)
-        {
-
-          int begin = q* SegBlockNum;
-
-          for(int b = begin; b < begin + SegBlockNum -gridRowSize; b++)
-          {
-            total+= d_answer[b];
-          }
-        }
-        total *= 2;
-
-        for(int f = 0; f < nBY; f++)
-        {
-
-          for( int e = f * SegBlockNum + SegBlockNum - gridRowSize; e < f * SegBlockNum + SegBlockNum; e++)
-          {
-            total += d_answer[e];
-          }
-        }
-      }
-
-      d_answer[gridDim.x * blockIdx.y + blockIdx.x] = 0;
-      d_answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
-    }
+	//check if N is even or odd, then calculate sum, which is number of solutions
+	if(_N_ % 2 == 0){
+		for(int i = 0; i < numberBlocks; i++){ 
+			sum+= a[i];
+		}
+		sum *= 2;
+	}
+	else{
+		int numBlocksPerSeg = numberBlocks / numBY;
+		for(int j = 0; j < numBY; j++){
+			int start = j * numBlocksPerSeg;
+			for(int i = start; i < start + numBlocksPerSeg - rowSizeOfGrid; i++){ 
+				sum+= a[i];
+			}
+		
+		}
+		sum *= 2;
+		
+		//add last block row of sums for each Y block
+		for(int j = 0; j < numBY; j++){
+			for(int i = j * numBlocksPerSeg + numBlocksPerSeg - rowSizeOfGrid; i < j * numBlocksPerSeg + numBlocksPerSeg; i++){ 
+				sum+= a[i];
+			}
+		}
+		
+	}
+	
+	//store sum to first index of a
+	a[gridDim.x * blockIdx.y + blockIdx.x] = 0;
+	a[gridDim.x * blockIdx.y + blockIdx.x] = sum;
+	
+	
 }
-
-
 
 
 
