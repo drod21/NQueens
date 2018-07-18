@@ -28,6 +28,7 @@ static int total = 0;
 unsigned long count = 0;
 struct timezone Idunno;
 struct timeval startTime, endTime;
+long *answer;
 
  #ifndef NUM
  #define NUM 4
@@ -138,7 +139,7 @@ int Solver(int **board, int col, int n)
 }
 
 // GPU parallel kernel for N-Queens
-__global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum)
+__global__ void kernel(long *d_d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum)
 {
   __shared__ long sol[NUM][NUM];
   __shared__ char tup[NUM][NUM][NUM];
@@ -148,17 +149,11 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
   int totalGenerated = powf(NUM, genNum);
   int blockYSeg = blockIdx.y / SegSize;
   int workLoad = totalGenerated / nBY;
-<<<<<<< HEAD
   int runOff = totalGenerated - workLoad * nBY;
 
 
 
 
-=======
-  int runOff = totalGenerated - workLoad *nBY;
-  sol[threadIdx.x][threadIdx.y] = 0;
-  tup[threadIdx.x][threadIdx.y][0] = blockIdx.y % SegSize;
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
   int temp = blockIdx.x;
   for(int x = 1; x <=nBX; x++)
   {
@@ -182,10 +177,6 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
     }
   }
 
-<<<<<<< HEAD
-
-=======
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
   if (wrongCount == 0)
   {
     int begin = blockYSeg * workLoad;
@@ -206,11 +197,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
         }
 			}
 
-<<<<<<< HEAD
       for(int k = NUM -1; k > wrongCount * NUM; k--)
-=======
-      for(int k = NUM - 1; k > wrongCount * NUM; k--)
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
       {
         for(int m = k - 1, counter = 1; m >= 0; m--, counter++)
         {
@@ -230,11 +217,6 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
   }
   
   __syncthreads();
-<<<<<<< HEAD
-
-=======
-// /*
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
     // sum all threads in block to get total
   	if(threadIdx.x == 0 && threadIdx.y == 0)
     {
@@ -247,9 +229,8 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
         }
         printf("%d\n", total);
   		}
-<<<<<<< HEAD
-  		answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
-    //  printf("%li\n", answer[gridDim.x * blockIdx.y + blockIdx.x]);
+  		d_answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
+    //  printf("%li\n", d_answer[gridDim.x * blockIdx.y + blockIdx.x]);
   	}
 
 
@@ -257,7 +238,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
 
     if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0)
     {
-      //findSum(answer, nBX, nBY);
+      //findSum(d_answer, nBX, nBY);
       int numBlocks = gridDim.x * gridDim.y;
       int gridRowSize = powf(NUM, nBX);
       long total = 0;
@@ -266,8 +247,8 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
       {
           for(int t = 0; t < numBlocks; t++)
           {
-            total+= answer[t];
-            //printf("%li\n", answer[t]);
+            total+= d_answer[t];
+            //printf("%li\n", d_answer[t]);
           }
           total *= 2;
         //  printf("%li\n", total);
@@ -284,7 +265,7 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
 
           for(int b = begin; b < begin + SegBlockNum -gridRowSize; b++)
           {
-            total+= answer[b];
+            total+= d_answer[b];
           }
         }
         total *= 2;
@@ -294,13 +275,13 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
 
           for( int e = f * SegBlockNum + SegBlockNum - gridRowSize; e < f * SegBlockNum + SegBlockNum; e++)
           {
-            total += answer[e];
+            total += d_answer[e];
           }
         }
       }
 
-      answer[gridDim.x * blockIdx.y + blockIdx.x] = 0;
-      answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
+      d_answer[gridDim.x * blockIdx.y + blockIdx.x] = 0;
+      d_answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
     }
 }
 
@@ -308,14 +289,6 @@ __global__ void kernel(long *answer, int SegSize, int nBX, int nBY, int genNum, 
 
 
 
-=======
-      answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
-      
-  	}
-  	__syncthreads();
-}
-
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
 double report_running_time() {
 	long sec_diff, usec_diff;
 	gettimeofday(&endTime, &Idunno);
@@ -338,16 +311,10 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-<<<<<<< HEAD
   const int NUM_TUPLEX = atoi(argv[1]);
   const int NUM_TUPLEY = atoi(argv[2]);
   int GPUSum = atoi(argv[3]);
   const int generatedNum = NUM - 3 - NUM_TUPLEX;
-=======
-  int NUM_TUPLEX = 1;
-  int NUM_TUPLEY = 1;
-  int generatedNum = NUM - 3 - NUM_TUPLEX;
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
   cudaEvent_t start, stop;
   float elapsedTime;
 
@@ -401,7 +368,7 @@ int main(int argc, char **argv) {
   HEIGHT = YSegmentSize + NUM_TUPLEY;
   NUM_BLOCKS = WIDTH * HEIGHT;
 
-  long *answer = new long[NUM_BLOCKS];
+  answer = new long[NUM_BLOCKS];
 
   long *d_answer;
 
@@ -431,7 +398,6 @@ int main(int argc, char **argv) {
 
   cudaMemcpy(answer,d_answer, sizeof(long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
 
-<<<<<<< HEAD
 
 const char* errorString = cudaGetErrorString(cudaGetLastError());
 printf("GPU Error: %s\n", errorString);
@@ -451,11 +417,6 @@ printf("GPU Error: %s\n", errorString);
     printf("\nTotal Solutions(GPU): %li boards\n", answer[0]);
   }
 
-=======
-	srand(1);
-  gettimeofday(&startTime, &Idunno);
-  Solver(board, 0, NUM);
->>>>>>> ed2e2fff81041dfc3e30e57fea2d9529d7425076
   report_running_time();
   printf("GPU Time: %f secs\n\n", (elapsedTime / 1000.00));
 
