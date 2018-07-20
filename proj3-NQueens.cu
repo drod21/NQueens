@@ -25,13 +25,13 @@ using namespace std;
 static int total = 0;
 struct timezone Idunno;
 struct timeval startTime, endTime;
-long long *answer;
+long *answer;
 
 #ifndef NUM
  #define NUM 10
 #endif
 
- __device__ void findSum(long long *d_answer, int nBX, int nBY, long *d_count)
+ __device__ void findSum(long *d_answer, int nBX, int nBY, long *d_count)
  {
    int num_Blocks = gridDim.x *gridDim.y;
    int gridRowSize = powf(NUM, nBX);
@@ -126,10 +126,10 @@ int Solver(int board[NUM][NUM], int col, int n)
   return nextState;
 }
 
-__global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum, long *d_count) {
+__global__ void kernel(long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum, long *d_count) {
 
-	__shared__ long long sol[NUM][NUM];
-	__shared__ long long tups[NUM][NUM][NUM];
+	__shared__ long sol[NUM][NUM];
+	__shared__ long tups[NUM][NUM][NUM];
 
   int wrongCount = 0;
 		
@@ -142,7 +142,6 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	
 	sol[threadIdx.x][threadIdx.y] = 0;
 	tups[threadIdx.x][threadIdx.y][0] = blockIdx.y % SegSize;
-  __syncthreads();
 	
 	//set tuple(s) by block X value
 	int temp = blockIdx.x;
@@ -155,8 +154,6 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	//set tuples by thread value
 	tups[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.x;
 	tups[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.y;
-	
-  __syncthreads();
 	
 	
 	//check if thread is valid at this point
@@ -179,7 +176,6 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 		//does not do if thread is already not valid at this point
 		int begin = blockYSeg * workLoad;
 		for(int c = begin; c < begin + workLoad + (blockYSeg == nBY - 1) * runOff; c++) {
-	    __syncthreads();
 			
 			//generate last values in tuples, convert to base N and store to tups array
 			int temp = c;
@@ -225,27 +221,22 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
   if(threadIdx.x == 0 && threadIdx.y == 0)
   {
 		//ensure that the block total value is 0 initially
-		long long total = 0;
+		long total = 0;
 		
-		//iterate through each threads solution and add it to the block total
     for(int i =0; i < NUM; i++)
     {
       for(int j = 0; j < NUM; j++)
       {
-				//use local var
 				total += sol[i][j];
 			}
 		}
 		
-		//store to global memory
 		d_answer[gridDim.x * blockIdx.y + blockIdx.x] = total;
 		
 	}
 	
-	//sync the threads so that calculations can be made
 	__syncthreads();
 	
-	//have the first thread in the first block sum up the block sums to return to the CPU
   if(GPUSum == 1)
   {
     findSum(d_answer, nBX, nBY, d_count);
@@ -324,12 +315,14 @@ int main(int argc, char **argv) {
   int YSegmentSize = (NUM / 2) + (NUM % 2);
   int HEIGHT = YSegmentSize * NUM_TUPLEY;
   int NUM_BLOCKS = WIDTH * HEIGHT;
-  answer = (long long *) malloc (sizeof(long long) * NUM_BLOCKS);
+  answer = (long *) malloc (sizeof(long) * NUM_BLOCKS);
 
-  long long *d_answer;
+  long *d_answer;
   long *d_count;
+
+ 
   cudaMalloc((void **) &d_count, sizeof(long));
-  res = cudaMalloc((void **) &d_answer, sizeof(long long) * NUM_BLOCKS);
+  res = cudaMalloc((void **) &d_answer, sizeof(long) * NUM_BLOCKS);
   if(res != cudaSuccess) {
     printf("error allocating memory. exiting.\n");
     return 0;
@@ -353,7 +346,7 @@ int main(int argc, char **argv) {
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime, start, stop);
 
-  res = cudaMemcpy(answer,d_answer, sizeof(long long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
+  res = cudaMemcpy(answer,d_answer, sizeof(long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
   if(res != cudaSuccess) {
     printf("error copying memory. exiting.\n");
     return 0;
@@ -372,7 +365,8 @@ int main(int argc, char **argv) {
     srand(1);
     gettimeofday(&startTime, &Idunno);
     Solver(board, 0, NUM);
-    printf("\nTotal sol(CPU): %d boards\n",total);
+    
+    printf("\nTotal sol(CPU): %d boards\n", total);
     report_running_time();
   }
   else if (GPUSum == 1)
