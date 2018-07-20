@@ -23,7 +23,6 @@
 
 using namespace std;
 static int total = 0;
-unsigned long count = 0;
 struct timezone Idunno;
 struct timeval startTime, endTime;
 long long *answer;
@@ -32,19 +31,19 @@ long long *answer;
  #define NUM 10
 #endif
 
- __device__ void findSum(long long *a, int nBX, int nBY)
+ __device__ void findSum(long long *d_answer, int nBX, int nBY, long *d_count)
  {
    int num_Blocks = gridDim.x *gridDim.y;
    int gridRowSize = powf(NUM, nBX);
-   long long total = 0;
+   *d_count = 0;
 
    if(NUM % 2 == 0)
    {
        for(int t = 0; t < num_Blocks; t++)
        {
-         total += a[t];
+         *d_count += d_answer[t];
        }
-       total *= 2;
+       *d_count *= 2;
    }
 
    else
@@ -54,29 +53,24 @@ long long *answer;
      for(int q = 0; q < nBY; q++)
      {
 
-       int begin = q* SegBlockNum;
+       int begin = q * SegBlockNum;
 
-       for(int b = begin; b < begin + SegBlockNum -gridRowSize; b++)
+       for(int b = begin; b < begin + SegBlockNum - gridRowSize; b++)
        {
-         total += a[b];
+         *d_count += d_answer[b];
        }
      }
-     total *= 2;
+     *d_count *= 2;
 
      for(int f = 0; f < nBY; f++)
      {
 
        for( int e = f * SegBlockNum + SegBlockNum - gridRowSize; e < f * SegBlockNum + SegBlockNum; e++)
        {
-         total += a[e];
+         *d_count += d_answer[e];
        }
      }
    }
-   a[gridDim.x * blockIdx.y + blockIdx.x] = 0;
-   a[gridDim.x * blockIdx.y + blockIdx.x] = total;
-
-
-
  }
 
 //CPU helper function to test is a queen can be placed
@@ -132,10 +126,10 @@ int Solver(int board[NUM][NUM], int col, int n)
   return nextState;
 }
 
-__global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum){
+__global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum, long *d_count) {
 
-	__shared__ long sol[NUM][NUM];
-	__shared__ char tups[NUM][NUM][NUM];
+	__shared__ long long sol[NUM][NUM];
+	__shared__ long long tups[NUM][NUM][NUM];
 
   int wrongCount = 0;
 		
@@ -148,6 +142,7 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	
 	sol[threadIdx.x][threadIdx.y] = 0;
 	tups[threadIdx.x][threadIdx.y][0] = blockIdx.y % SegSize;
+  __syncthreads();
 	
 	//set tuple(s) by block X value
 	int temp = blockIdx.x;
@@ -161,6 +156,7 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	tups[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.x;
 	tups[threadIdx.x][threadIdx.y][++tupCount] = threadIdx.y;
 	
+  __syncthreads();
 	
 	
 	//check if thread is valid at this point
@@ -183,6 +179,7 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 		//does not do if thread is already not valid at this point
 		int begin = blockYSeg * workLoad;
 		for(int c = begin; c < begin + workLoad + (blockYSeg == nBY - 1) * runOff; c++) {
+	    __syncthreads();
 			
 			//generate last values in tuples, convert to base N and store to tups array
 			int temp = c;
@@ -214,7 +211,6 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 			
 			//add 1 to solution total if nothing wrong
 			sol[threadIdx.x][threadIdx.y] += !(wrongCount);
-	    __syncthreads();
 			
 			//reset total wrong
 			wrongCount = 0;
@@ -226,14 +222,16 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	__syncthreads();
 	
 	//have thread 0 sum for all threads in block to get block total
-	if(threadIdx.x == 0 && threadIdx.y == 0){
-	
+  if(threadIdx.x == 0 && threadIdx.y == 0)
+  {
 		//ensure that the block total value is 0 initially
-		long total = 0;
+		long long total = 0;
 		
 		//iterate through each threads solution and add it to the block total
-		for(int i =0; i < NUM; i++){
-			for(int j = 0; j < NUM; j++){
+    for(int i =0; i < NUM; i++)
+    {
+      for(int j = 0; j < NUM; j++)
+      {
 				//use local var
 				total += sol[i][j];
 			}
@@ -248,10 +246,10 @@ __global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int g
 	__syncthreads();
 	
 	//have the first thread in the first block sum up the block sums to return to the CPU
-	// if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0){
-  //   findSum(d_answer, nBX, nBY);
-  //   __syncthreads();
-	// }
+  if(GPUSum == 1)
+  {
+    findSum(d_answer, nBX, nBY, d_count);
+	}
 } 
 
 double report_running_time() {
@@ -267,38 +265,6 @@ double report_running_time() {
 	return (double)(sec_diff*1.0 + usec_diff/1000.0);
 }
 
-void printResults(long long *answers, int NUM_BLOCKS, int NUM_TUPLEX, int NUM_TUPLEY) {
-  total = 0;
-	
-  if(NUM % 2 == 0){
-    for(int i = 0; i < NUM_BLOCKS; i++){ 
-      total += answers[i];
-    }
-    total *= 2;
-  }
-  else
-  {
-    int blocksPerSegment = NUM_BLOCKS / NUM_TUPLEY;
-    int rowSize = pow(NUM, NUM_TUPLEX);
-    
-    for(int j = 0; j < NUM_TUPLEY; j++){
-      int start = j * blocksPerSegment;
-      for(int i = start; i < start + blocksPerSegment - rowSize; i++){ 
-        total += answers[i];
-      }
-    
-    }
-    total *= 2;
-    
-    for(int j = 0; j < NUM_TUPLEY; j++){
-      for(int i = j * blocksPerSegment + blocksPerSegment - rowSize; i < j * blocksPerSegment + blocksPerSegment; i++){ 
-        total += answers[i];
-      }
-    }
-}
-printf("Number of solutions GPU::: %d\n", total);
-}
-
 int main(int argc, char **argv) {
 
   if(argc < 4) {
@@ -311,6 +277,7 @@ int main(int argc, char **argv) {
   const int NUM_TUPLEY = atoi(argv[2]);
   int GPUSum = atoi(argv[3]);
   const int generatedNum = NUM - 3 - NUM_TUPLEX;
+  long count = 0;
   cudaEvent_t start, stop;
   cudaError_t res;
   float elapsedTime;
@@ -346,35 +313,31 @@ int main(int argc, char **argv) {
 
   //CPU setup
   int board[NUM][NUM];
-  // board = (int **) malloc(NUM * sizeof(int *));
 
-  // for (int i = 0; i < NUM; i++) {
-  //   board[i] = (int *) malloc(NUM * sizeof(int));
-
-  // }
   for (int i = 0; i < NUM; i++) {
     for (int j = 0; j < NUM; j++) {
       board[i][j] = 0;
     }
   }
 
-  int WIDTH, HEIGHT, NUM_BLOCKS, YSegmentSize;
-  WIDTH = pow(NUM, NUM_TUPLEX);
-  YSegmentSize = (NUM / 2) + (NUM % 2);
-  HEIGHT = YSegmentSize * NUM_TUPLEY;
-  NUM_BLOCKS = WIDTH * HEIGHT;
-
+  int WIDTH = pow(NUM, NUM_TUPLEX);
+  int YSegmentSize = (NUM / 2) + (NUM % 2);
+  int HEIGHT = YSegmentSize * NUM_TUPLEY;
+  int NUM_BLOCKS = WIDTH * HEIGHT;
   answer = (long long *) malloc (sizeof(long long) * NUM_BLOCKS);
 
   long long *d_answer;
-
+  long *d_count;
+  cudaMalloc((void **) &d_count, sizeof(long));
   res = cudaMalloc((void **) &d_answer, sizeof(long long) * NUM_BLOCKS);
   if(res != cudaSuccess) {
     printf("error allocating memory. exiting.\n");
     return 0;
   }
-  dim3 block(NUM, NUM); //threads w x h
-  dim3 grid(WIDTH, HEIGHT); //blocks w x h
+
+  dim3 block(NUM, NUM);
+  dim3 grid(WIDTH, HEIGHT);
+  cudaMemcpy(d_count, &count, sizeof(long), cudaMemcpyHostToDevice);
 
   res = cudaEventCreate(&start);
   if(res != cudaSuccess) {
@@ -384,8 +347,8 @@ int main(int argc, char **argv) {
   cudaEventCreate(&stop);
   cudaEventRecord(start, 0);
 
-  kernel<<<grid, block>>>(d_answer, YSegmentSize, NUM_TUPLEX, NUM_TUPLEY, generatedNum, GPUSum);
-
+  kernel<<<grid, block>>>(d_answer, YSegmentSize, NUM_TUPLEX, NUM_TUPLEY, generatedNum, GPUSum, d_count);
+  cudaDeviceSynchronize();
   cudaEventRecord(stop, 0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime, start, stop);
@@ -395,6 +358,9 @@ int main(int argc, char **argv) {
     printf("error copying memory. exiting.\n");
     return 0;
   }
+
+  cudaMemcpy(&count, d_count, sizeof(long), cudaMemcpyDeviceToHost);
+
 
 
   const char* errorString = cudaGetErrorString(cudaGetLastError());
@@ -411,7 +377,7 @@ int main(int argc, char **argv) {
   }
   else if (GPUSum == 1)
   {
-    printResults(answer, NUM_BLOCKS, NUM_TUPLEX, NUM_TUPLEX);
+    printf("\nTotal sol(GPU): %li boards\n", count);
   }
   printf("GPU Time: %f secs\n\n", (elapsedTime / 1000.00));
 
