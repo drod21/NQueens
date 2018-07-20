@@ -18,27 +18,25 @@
 #include <math.h>
 #include <string.h>
 #include <sys/time.h>
-#include <iostream>
 #include <cuda_runtime.h>
 #include <cuda.h>
-#include <vector>
 
 using namespace std;
 static int total = 0;
 unsigned long count = 0;
 struct timezone Idunno;
 struct timeval startTime, endTime;
-long *answer;
+long long *answer;
 
- #ifndef NUM
- #define NUM 8
- #endif
+#ifndef NUM
+ #define NUM 10
+#endif
 
- __device__ void findSum(long *a, int nBX, int nBY)
+ __device__ void findSum(long long *a, int nBX, int nBY)
  {
    int num_Blocks = gridDim.x *gridDim.y;
    int gridRowSize = powf(NUM, nBX);
-   long total = 0;
+   long long total = 0;
 
    if(NUM % 2 == 0)
    {
@@ -74,7 +72,6 @@ long *answer;
        }
      }
    }
-
    a[gridDim.x * blockIdx.y + blockIdx.x] = 0;
    a[gridDim.x * blockIdx.y + blockIdx.x] = total;
 
@@ -83,7 +80,7 @@ long *answer;
  }
 
 //CPU helper function to test is a queen can be placed
-int isAllowed(int **board, int row, int col, int n)
+int isAllowed(int board[NUM][NUM], int row, int col, int n)
 {
   int x,y;
 
@@ -113,7 +110,7 @@ int isAllowed(int **board, int row, int col, int n)
  return 1;
 }
 // CPU Solver for N-queens problem
-int Solver(int **board, int col, int n)
+int Solver(int board[NUM][NUM], int col, int n)
 {
   if (col >= n)
   {
@@ -135,7 +132,7 @@ int Solver(int **board, int col, int n)
   return nextState;
 }
 
-__global__ void kernel(long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum){
+__global__ void kernel(long long *d_answer, int SegSize, int nBX, int nBY, int genNum, int GPUSum){
 
 	__shared__ long sol[NUM][NUM];
 	__shared__ char tups[NUM][NUM][NUM];
@@ -217,6 +214,7 @@ __global__ void kernel(long *d_answer, int SegSize, int nBX, int nBY, int genNum
 			
 			//add 1 to solution total if nothing wrong
 			sol[threadIdx.x][threadIdx.y] += !(wrongCount);
+	    __syncthreads();
 			
 			//reset total wrong
 			wrongCount = 0;
@@ -250,9 +248,10 @@ __global__ void kernel(long *d_answer, int SegSize, int nBX, int nBY, int genNum
 	__syncthreads();
 	
 	//have the first thread in the first block sum up the block sums to return to the CPU
-	if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0){
-		findSum(d_answer, nBX, nBY);
-	}
+	// if(GPUSum == 1 && blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0 && threadIdx.y == 0){
+  //   findSum(d_answer, nBX, nBY);
+  //   __syncthreads();
+	// }
 } 
 
 double report_running_time() {
@@ -268,6 +267,37 @@ double report_running_time() {
 	return (double)(sec_diff*1.0 + usec_diff/1000.0);
 }
 
+void printResults(long long *answers, int NUM_BLOCKS, int NUM_TUPLEX, int NUM_TUPLEY) {
+  total = 0;
+	
+  if(NUM % 2 == 0){
+    for(int i = 0; i < NUM_BLOCKS; i++){ 
+      total += answers[i];
+    }
+    total *= 2;
+  }
+  else
+  {
+    int blocksPerSegment = NUM_BLOCKS / NUM_TUPLEY;
+    int rowSize = pow(NUM, NUM_TUPLEX);
+    
+    for(int j = 0; j < NUM_TUPLEY; j++){
+      int start = j * blocksPerSegment;
+      for(int i = start; i < start + blocksPerSegment - rowSize; i++){ 
+        total += answers[i];
+      }
+    
+    }
+    total *= 2;
+    
+    for(int j = 0; j < NUM_TUPLEY; j++){
+      for(int i = j * blocksPerSegment + blocksPerSegment - rowSize; i < j * blocksPerSegment + blocksPerSegment; i++){ 
+        total += answers[i];
+      }
+    }
+}
+printf("Number of solutions GPU::: %d\n", sum);
+}
 
 int main(int argc, char **argv) {
 
@@ -282,6 +312,7 @@ int main(int argc, char **argv) {
   int GPUSum = atoi(argv[3]);
   const int generatedNum = NUM - 3 - NUM_TUPLEX;
   cudaEvent_t start, stop;
+  cudaError_t res;
   float elapsedTime;
 
   if(generatedNum < 0){
@@ -314,17 +345,16 @@ int main(int argc, char **argv) {
   	}
 
   //CPU setup
-  int **board;
-  board = (int **) malloc(NUM * sizeof(int *));
+  int board[NUM][NUM];
+  // board = (int **) malloc(NUM * sizeof(int *));
 
-  for (int i = 0; i < NUM; i++) {
-    board[i] = (int *) malloc(NUM * sizeof(int));
+  // for (int i = 0; i < NUM; i++) {
+  //   board[i] = (int *) malloc(NUM * sizeof(int));
 
-  }
+  // }
   for (int i = 0; i < NUM; i++) {
     for (int j = 0; j < NUM; j++) {
       board[i][j] = 0;
-
     }
   }
 
@@ -334,46 +364,54 @@ int main(int argc, char **argv) {
   HEIGHT = YSegmentSize * NUM_TUPLEY;
   NUM_BLOCKS = WIDTH * HEIGHT;
 
-  answer = new long[NUM_BLOCKS];
+  answer = (long long *) malloc (sizeof(long long) * NUM_BLOCKS);
 
-  long *d_answer;
+  long long *d_answer;
 
-  cudaMalloc((void **) &d_answer, sizeof(long) * NUM_BLOCKS);
+  res = cudaMalloc((void **) &d_answer, sizeof(long long) * NUM_BLOCKS);
+  if(res != cudaSuccess) {
+    printf("error allocating memory. exiting.\n");
+    return 0;
+  }
   dim3 block(NUM, NUM); //threads w x h
   dim3 grid(WIDTH, HEIGHT); //blocks w x h
 
-  cudaEventCreate(&start);
+  res = cudaEventCreate(&start);
+  if(res != cudaSuccess) {
+    printf("error starting event. exiting.\n");
+    return 0;
+  }
   cudaEventCreate(&stop);
   cudaEventRecord(start, 0);
 
   kernel<<<grid, block>>>(d_answer, YSegmentSize, NUM_TUPLEX, NUM_TUPLEY, generatedNum, GPUSum);
-  cudaThreadSynchronize();
 
   cudaEventRecord(stop, 0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsedTime, start, stop);
 
-  cudaMemcpy(answer,d_answer, sizeof(long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
+  res = cudaMemcpy(answer,d_answer, sizeof(long long) * NUM_BLOCKS, cudaMemcpyDeviceToHost);
+  if(res != cudaSuccess) {
+    printf("error copying memory. exiting.\n");
+    return 0;
+  }
 
 
 const char* errorString = cudaGetErrorString(cudaGetLastError());
 printf("GPU Error: %s\n", errorString);
 
 
-	srand(1);
-  gettimeofday(&startTime, &Idunno);
-  Solver(board, 0, NUM);
-
-  report_running_time();
-
-
   if(GPUSum == 0)
   {
+    srand(1);
+    gettimeofday(&startTime, &Idunno);
+    Solver(board, 0, NUM);
     printf("\nTotal sol(CPU): %d boards\n",total);
+    report_running_time();
   }
   else if (GPUSum == 1)
   {
-    printf("\nTotal sol(GPU): %li boards\n", answer[0]);
+    printResults(answer, NUM_BLOCKS, NUM_TUPLEX, NUM_TUPLEX);
   }
   printf("GPU Time: %f secs\n\n", (elapsedTime / 1000.00));
 
@@ -385,41 +423,7 @@ printf("GPU Error: %s\n", errorString);
   
    	//free allocated host memory
  	free(answer);
-/*
-		int sum = 0;
 	
-		//check if N is even or odd, then calculate sum, which is number of sol
-		if(NUM % 2 == 0){
-			for(int i = 0; i < NUM_BLOCKS; i++){ 
-				sum+= answer[i];
-			}
-			sum *= 2;
-		}
-    else
-    {
-			int numBlocksPerSeg = NUM_BLOCKS / NUM_TUPLEY;
-			int rowSizeOfGrid = pow(NUM, NUM_TUPLEX);
-			
-			for(int j = 0; j < NUM_TUPLEY; j++){
-        int start = j * numBlocksPerSeg;
-        printf("%d\n", start);
-				for(int i = start; i < start + numBlocksPerSeg - rowSizeOfGrid; i++){ 
-        printf("%d\n", answer[i]);
-					sum+= answer[i];
-				}
-			
-			}
-			sum *= 2;
-			
-			//add last block row of sums for each Y block
-			for(int j = 0; j < NUM_TUPLEY; j++){
-				for(int i = j * numBlocksPerSeg + numBlocksPerSeg - rowSizeOfGrid; i < j * numBlocksPerSeg + numBlocksPerSeg; i++){ 
-					sum+= answer[i];
-				}
-      }
-      
-  }
-*/
  // printf("\nTotal sol: %d boards\n", sum);
   return 0;
 
