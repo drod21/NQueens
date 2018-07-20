@@ -296,7 +296,7 @@ void printResults(long long *answers, int NUM_BLOCKS, int NUM_TUPLEX, int NUM_TU
       }
     }
 }
-printf("Number of solutions GPU::: %d\n", sum);
+printf("Number of solutions GPU::: %d\n", total);
 }
 
 int main(int argc, char **argv) {
@@ -397,8 +397,8 @@ int main(int argc, char **argv) {
   }
 
 
-const char* errorString = cudaGetErrorString(cudaGetLastError());
-printf("GPU Error: %s\n", errorString);
+  const char* errorString = cudaGetErrorString(cudaGetLastError());
+  printf("GPU Error: %s\n", errorString);
 
 
   if(GPUSum == 0)
